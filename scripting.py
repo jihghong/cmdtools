@@ -45,7 +45,7 @@ _RELATION = None
 def register_relation(
     main_class=None,
     sub_class=None,
-    subattr="strategies",
+    subattr=None,
     main_id_attr="id",
     sub_id_attr="id",
     all=None,

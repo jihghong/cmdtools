@@ -21,4 +21,6 @@ tune beta level=2
 tune gamma level=2
 tune beta level=1
 reboot gamma
+shutdown -t 3
 RuntimeError("scripting.execute() explicit command requires exactly one target in 'reboot alpha beta'")
+RuntimeError("scripting.execute() engine commands do not accept targets in 'shutdown for alpha'")

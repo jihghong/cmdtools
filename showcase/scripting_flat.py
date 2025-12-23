@@ -17,6 +17,9 @@ class Device:
     def reboot(self):
         print(f"reboot {self.name}")
 
+@command
+def shutdown(t=0):
+    print(f"shutdown -t {t}")
 
 devices = [Device("alpha"), Device("beta"), Device("gamma")]
 
@@ -49,4 +52,6 @@ execute("tune level=2 for all")
 execute("tune for beta")
 
 execute("reboot gamma")
+execute("shutdown t=3")
 execute_raised("reboot alpha beta")
+execute_raised("shutdown for alpha")
