@@ -1,0 +1,24 @@
+overview alpha
+overview beta
+overview gamma
+overview alpha
+overview beta
+overview gamma
+overview alpha
+overview beta
+overview gamma
+overview alpha
+overview beta
+overview beta
+overview alpha
+overview alpha
+overview beta
+overview gamma
+tune alpha level=1
+tune alpha level=3
+tune alpha level=2
+tune beta level=2
+tune gamma level=2
+tune beta level=1
+reboot gamma
+RuntimeError("scripting.execute() explicit command requires exactly one target in 'reboot alpha beta'")
