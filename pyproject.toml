@@ -3,11 +3,15 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scripting"
+name = "cmdtools"
 version = "0.1.0"
-description = "Scripting project modules."
+description = "Command-dispatch tools."
 requires-python = ">=3.8"
+authors = [
+  {name = "John Lin"},
+  {name = "GPT-5.2-Codex"},
+]
 dependencies = []
 
 [tool.setuptools]
-py-modules = ["scripting"]
+py-modules = ["cmdtools"]

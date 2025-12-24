@@ -35,4 +35,4 @@ shift robot1.[0] float(1.25)
 echo robot1.[0] 'hello'
 ping robot2.[0]
 patch record robot1 float(28.5) int(3)
-RuntimeError("scripting.execute() explicit command requires exactly one target in 'patch_record 28.5 3 for robot1 robot2'")
+RuntimeError("cmdtools.execute() explicit command requires exactly one target in 'patch_record 28.5 3 for robot1 robot2'")

@@ -1,6 +1,6 @@
-# Scripting
+# Cmdtools
 
-Scripting is a lightweight command-dispatch utility that maps command strings to Python callables. It supports explicit targets, defaults, keyword arguments, and a general "A has many B" relation so you can apply the same syntax to different domains.
+Cmdtools is a lightweight command-dispatch utility that maps command strings to Python callables. It supports explicit targets, defaults, keyword arguments, and a general "A has many B" relation so you can apply the same syntax to different domains.
 
 ## Features
 
@@ -10,11 +10,12 @@ Scripting is a lightweight command-dispatch utility that maps command strings to
 - Subclass-aware dispatch (commands defined on subclasses still work)
 - Optional single-level (no subitems) mode
 - Command name tokens: `gain_align` can be invoked as `gain align`
+- Built-in help output via `get_help()`
 
 ## Quick Start
 
 ```python
-from scripting import command, execute, register_relation
+from cmdtools import command, execute, register_relation
 
 class Strategy:
     def __init__(self, robot, index):
@@ -54,7 +55,7 @@ execute("shift value=2 for self.[1]", self=robots[0])
 ## Installation
 
 ```bash
-pip install git+https://github.com/jihghong/scripting
+pip install git+https://github.com/jihghong/cmdtools
 ```
 
 ## Command Grammar
@@ -76,7 +77,7 @@ pip install git+https://github.com/jihghong/scripting
 If no targets are provided:
 - If `self` is given, it behaves as `for self`.
 - Else if `all` is configured, it behaves as `for all`.
-- Otherwise, an error is raised (except for engine-level commands).
+- Otherwise, an error is raised (except for module-level commands).
 
 ## API
 
@@ -111,10 +112,33 @@ Execute a command string or a list/tuple of tokens.
 - `all` overrides the default list from `register_relation` for this call.
 - Errors raise `RuntimeError` with a specific reason.
 
+### `get_help(command=None, *, self=None)`
+Return a formatted help string for all commands or a specific command.
+
+- Groups by class (main/sub) and global commands.
+- Uses `*` for normal commands and `!` for `explicit=True`.
+- If `self` is provided, help reflects that context.
+- If no relation is registered, the header is `Commands`.
+
+Example output:
+
+```
+Strategy commands (for all | id | id.[n] | self | self.[n])
+    * overview
+    * shift [value=0.0]
+
+Robot commands (for all | id | self)
+    * overview
+    ! patch record <price: float> <size: int>
+
+Global commands
+    * version
+```
+
 ## Single-Level Relation Example
 
 ```python
-from scripting import command, execute, register_relation
+from cmdtools import command, execute, register_relation
 
 class Device:
     def __init__(self, name):
@@ -145,4 +169,4 @@ execute("tune 3 for beta")
 
 - Use `explicit=True` on a command to require exactly one target.
 - If a sub id is used across multiple main objects, it must be unique or execution will error due to ambiguity.
-- See `showcase/scripting_robots.py`, `showcase/scripting_library.py`, and `showcase/scripting_flat.py` for runnable demos.
+- See `showcase/cmdtools_robots.py`, `showcase/cmdtools_library.py`, `showcase/cmdtools_flat.py`, and `showcase/cmdtools_help.py` for runnable demos.

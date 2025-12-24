@@ -14,6 +14,7 @@ _MAIN_INDEX_RE = re.compile(r"^(?P<main>.+)\.\[(?P<index>\d+)\]$")
 @dataclass(frozen=True)
 class ParamInfo:
     name: str
+    type_name: str
     converter: callable
     has_default: bool
     default: object
@@ -70,7 +71,16 @@ def _get_owner_info(func):
     qual = func.__qualname__
     if "." in qual:
         return "method", qual.split(".")[0]
-    return "engine", None
+    return "module", None
+
+
+def _get_type_name(param):
+    annotation = param.annotation
+    if annotation is not inspect._empty and hasattr(annotation, "__name__"):
+        return annotation.__name__
+    if param.default is not inspect._empty:
+        return type(param.default).__name__
+    return "str"
 
 
 def _get_converter(annotation):
@@ -127,6 +137,7 @@ def command(func=None, *, explicit=False):
             param_infos.append(
                 ParamInfo(
                     name=param.name,
+                    type_name=_get_type_name(param),
                     converter=_get_converter(param.annotation),
                     has_default=param.default is not inspect._empty,
                     default=param.default,
@@ -238,8 +249,8 @@ def _resolve_relation(self_obj, all_override):
 
 
 def _resolve_owner(info, relation):
-    if info.owner == "engine":
-        return "engine"
+    if info.owner == "module":
+        return "module"
     if relation is None:
         return None
     cls = info.func.__globals__.get(info.owner_name)
@@ -392,9 +403,9 @@ def _find_sub_by_id(all_list, subattr, sub_id_attr, sub_id):
 
 
 def _resolve_targets(owner, relation, target_tokens, self_obj):
-    if owner == "engine":
+    if owner == "module":
         if target_tokens:
-            return None, "engine commands do not accept targets"
+            return None, "module commands do not accept targets"
         return [], None
     if relation is None:
         return None, "relation not registered (call register_relation())"
@@ -498,7 +509,7 @@ def _resolve_targets(owner, relation, target_tokens, self_obj):
 def _enforce_explicit(info, owner, targets):
     if not info.explicit:
         return None
-    if owner == "engine":
+    if owner == "module":
         return None
     if len(targets) != 1:
         return f"explicit command requires exactly one target"
@@ -507,7 +518,7 @@ def _enforce_explicit(info, owner, targets):
 
 def _format_error(tokens, errors):
     if not errors:
-        return f"scripting.execute() cannot execute {' '.join(tokens)!r}"
+        return f"cmdtools.execute() cannot execute {' '.join(tokens)!r}"
     uniq = []
     seen = set()
     for err in errors:
@@ -515,8 +526,8 @@ def _format_error(tokens, errors):
             uniq.append(err)
             seen.add(err)
     if len(uniq) == 1:
-        return f"scripting.execute() {uniq[0]} in {' '.join(tokens)!r}"
-    return f"scripting.execute() cannot execute ({'; '.join(uniq)}) in {' '.join(tokens)!r}"
+        return f"cmdtools.execute() {uniq[0]} in {' '.join(tokens)!r}"
+    return f"cmdtools.execute() cannot execute ({'; '.join(uniq)}) in {' '.join(tokens)!r}"
 
 
 def _target_tokens_hint_sub(target_tokens):
@@ -528,9 +539,96 @@ def _target_tokens_hint_sub(target_tokens):
     return False
 
 
+def _format_param(param):
+    if param.has_default:
+        return f"[{param.name}={param.default!r}]"
+    return f"<{param.name}: {param.type_name}>"
+
+
+def _format_command(info):
+    name = " ".join(info.name_tokens)
+    parts = [name]
+    for param in info.params:
+        parts.append(_format_param(param))
+    return " ".join(parts)
+
+
+def _format_group_header(owner, name, relation):
+    if owner == "module":
+        if relation is None:
+            return "Commands"
+        return "Global commands"
+    if owner == "main":
+        return f"{name} commands (for all | id | self)"
+    if owner == "sub":
+        return f"{name} commands (for all | id | id.[n] | self | self.[n])"
+    return f"{name} commands"
+
+
+def get_help(command=None, *, self=None):
+    relation = None
+    if _RELATION is not None:
+        relation, _ = _resolve_relation(self, None)
+    self_kind = _classify_self(self, relation) if relation is not None else None
+
+    if command:
+        tokens = _tokenize(command)
+        infos, consumed, match_error = _match_command(tokens)
+        if not infos:
+            return f"Unknown command: {command!r}"
+        selected_infos = infos
+    else:
+        selected_infos = [info for infos in _COMMANDS.values() for info in infos]
+
+    groups = {}
+    group_order = []
+    for info in selected_infos:
+        if relation is None:
+            if info.owner != "module":
+                continue
+            owner = "module"
+        else:
+            owner = _resolve_owner(info, relation)
+            if owner is None:
+                continue
+
+        if self is not None and owner != "module":
+            if self_kind is None:
+                continue
+            if owner == "main" and self_kind != "main":
+                continue
+            if owner == "sub" and self_kind not in ("main", "sub"):
+                continue
+
+        group_name = "Module" if owner == "module" else info.owner_name or "Unknown"
+        group_key = (owner, group_name)
+        if group_key not in groups:
+            groups[group_key] = []
+            group_order.append(group_key)
+        groups[group_key].append(info)
+
+    if not groups:
+        return "No commands available."
+
+    group_order = [key for key in group_order if key[0] != "module"] + [
+        key for key in group_order if key[0] == "module"
+    ]
+
+    lines = []
+    for owner, group_name in group_order:
+        header = _format_group_header(owner, group_name, relation)
+        lines.append(header)
+        for info in groups[(owner, group_name)]:
+            marker = "!" if info.explicit else "*"
+            lines.append(f"    {marker} {_format_command(info)}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
 def _build_call(info, tokens, self_obj, all_override):
-    if info.owner == "engine":
-        owner = "engine"
+    if info.owner == "module":
+        owner = "module"
         arg_tokens, target_tokens, had_for = _split_for(tokens, info)
         if had_for and not target_tokens:
             return None, "missing targets after for"
@@ -538,7 +636,7 @@ def _build_call(info, tokens, self_obj, all_override):
         if error:
             return None, error
         if target_tokens:
-            return None, "engine commands do not accept targets"
+            return None, "module commands do not accept targets"
         return (info, owner, args, [], None, target_tokens), None
 
     relation, relation_error = _resolve_relation(self_obj, all_override)
@@ -574,7 +672,7 @@ def _select_call(calls):
         return calls[0]
 
     for info, owner, args, targets, self_kind, target_tokens in calls:
-        if owner == "engine":
+        if owner == "module":
             return info, owner, args, targets, self_kind, target_tokens
 
     for info, owner, args, targets, self_kind, target_tokens in calls:
@@ -594,15 +692,15 @@ def _select_call(calls):
 
 def execute(*command, self=None, all=None):
     if not command:
-        raise RuntimeError("scripting.execute() empty command")
+        raise RuntimeError("cmdtools.execute() empty command")
 
     tokens = _tokenize(command[0]) if len(command) == 1 else _tokenize(command)
     if not tokens:
-        raise RuntimeError("scripting.execute() empty command")
+        raise RuntimeError("cmdtools.execute() empty command")
 
     infos, consumed, match_error = _match_command(tokens)
     if not infos:
-        raise RuntimeError(f"scripting.execute() {match_error} in {' '.join(tokens)!r}")
+        raise RuntimeError(f"cmdtools.execute() {match_error} in {' '.join(tokens)!r}")
 
     remaining = tokens[consumed:]
     calls = []
@@ -620,7 +718,7 @@ def execute(*command, self=None, all=None):
 
     info, owner, args, targets, self_kind, target_tokens = selected
 
-    if owner == "engine":
+    if owner == "module":
         info.func(*args)
         return
     if owner == "main":

@@ -1,4 +1,4 @@
-from scripting import command, execute, register_relation
+from cmdtools import command, execute, register_relation
 
 
 class Strategy:

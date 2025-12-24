@@ -1,0 +1,44 @@
+---------------------------- Help before register_relation():
+
+Commands
+    * version
+
+---------------------------- Help after register_relation():
+
+Strategy commands (for all | id | id.[n] | self | self.[n])
+    * overview
+    * shift [value=0.0]
+
+Robot commands (for all | id | self)
+    * overview
+    ! patch record <price: float> <size: int>
+
+Global commands
+    * version
+
+---------------------------- Help for self=robot1:
+
+Strategy commands (for all | id | id.[n] | self | self.[n])
+    * overview
+    * shift [value=0.0]
+
+Robot commands (for all | id | self)
+    * overview
+    ! patch record <price: float> <size: int>
+
+Global commands
+    * version
+
+---------------------------- Help for self=strategy0:
+
+Strategy commands (for all | id | id.[n] | self | self.[n])
+    * overview
+    * shift [value=0.0]
+
+Global commands
+    * version
+
+---------------------------- Help for command 'patch record':
+
+Robot commands (for all | id | self)
+    ! patch record <price: float> <size: int>
