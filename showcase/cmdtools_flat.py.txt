@@ -22,5 +22,5 @@ tune gamma level=2
 tune beta level=1
 reboot gamma
 shutdown -t 3
-RuntimeError("cmdtools.execute() explicit command requires exactly one target in 'reboot alpha beta'")
-RuntimeError("cmdtools.execute() module commands do not accept targets in 'shutdown for alpha'")
+CmdtoolsError("command 'reboot' requires exactly one target in 'reboot alpha beta'\n* reboot")
+CmdtoolsError("command 'shutdown' does not accept targets in 'shutdown for alpha'\n* shutdown [t=0]")

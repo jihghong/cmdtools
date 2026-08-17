@@ -1,0 +1,4 @@
+Commands
+    * greet [name='world']
+    * add <a: int> [b=0]
+    * echo [text='ok']

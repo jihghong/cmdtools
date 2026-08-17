@@ -11,6 +11,8 @@ Cmdtools is a lightweight command-dispatch utility that maps command strings to 
 - Optional single-level (no subitems) mode
 - Command name tokens: `gain_align` can be invoked as `gain align`
 - Built-in help output via `get_help()`
+- CLI entry helper via `cli_entry()` (includes `-h/--help`)
+- Dry-run validation via `execute(..., dry_run=True)`
 
 ## Quick Start
 
@@ -105,12 +107,18 @@ Notes:
 - `main_id_attr` and `sub_id_attr` can differ.
 - To support **single-level** (no subitems), use `subattr=None`.
 
-### `execute(command, *, self=None, all=None)`
+### `execute(command, *, self=None, all=None, dry_run=False)`
 Execute a command string or a list/tuple of tokens.
 
 - `self` defines the `self` target.
 - `all` overrides the default list from `register_relation` for this call.
-- Errors raise `RuntimeError` with a specific reason.
+- `dry_run=True` validates without executing.
+- User input errors raise `CmdtoolsError` with a concise message.
+
+### `CmdtoolsError`
+Raised for invalid user input (unknown commands, bad arguments, invalid targets).
+The message is intended for end users.
+
 
 ### `get_help(command=None, *, self=None)`
 Return a formatted help string for all commands or a specific command.
@@ -134,6 +142,35 @@ Robot commands (for all | id | self)
 Global commands
     * version
 ```
+
+
+### `cli_entry(module_name=None, *, self=None, all=None, output=print, error_output=auto, argv=None)`
+Convenience helper for CLI entrypoints.
+
+```python
+from cmdtools import command, cli_entry
+
+@command
+def hello(name: str = "world"):
+    print(f"hello {name}")
+
+cli_entry(__name__)
+```
+
+Or:
+
+```python
+if __name__ == "__main__":
+    cli_entry()
+```
+
+Notes:
+- `-h/--help` prints help and exits 0.
+- `CmdtoolsError` messages print to `error_output` and exit 2.
+- If `error_output` is omitted, it defaults to `print_stderr` when `output` is `print`, otherwise it uses `output`.
+- To send both normal and error output to the same destination, set `output=...` and omit `error_output`.
+- Set `error_output=None` to silence error output.
+- `argv` can be passed for testing.
 
 ## Single-Level Relation Example
 
@@ -169,4 +206,4 @@ execute("tune 3 for beta")
 
 - Use `explicit=True` on a command to require exactly one target.
 - If a sub id is used across multiple main objects, it must be unique or execution will error due to ambiguity.
-- See `showcase/cmdtools_robots.py`, `showcase/cmdtools_library.py`, `showcase/cmdtools_flat.py`, and `showcase/cmdtools_help.py` for runnable demos.
+- See `showcase/cmdtools_robots.py`, `showcase/cmdtools_library.py`, `showcase/cmdtools_flat.py`, `showcase/cmdtools_help.py`, and `showcase/cmdtools_cli.py` for runnable demos.

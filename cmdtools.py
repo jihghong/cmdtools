@@ -1,5 +1,6 @@
 import inspect
 import re
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -39,8 +40,27 @@ class TargetToken:
     index: Optional[int] = None
 
 
+class CmdtoolsError(Exception):
+    """User-facing errors for invalid command input."""
+
+
+@dataclass(frozen=True)
+class BuildError:
+    message: str
+    kind: str
+    hint: Optional[str] = None
+
 _COMMANDS = {}
 _RELATION = None
+_ERROR_OUTPUT_DEFAULT = object()
+
+def _user_error(message, hint=None):
+    return BuildError(message=message, kind="user", hint=hint)
+
+
+def _dev_error(message, hint=None):
+    return BuildError(message=message, kind="dev", hint=hint)
+
 
 
 def register_relation(
@@ -405,7 +425,7 @@ def _find_sub_by_id(all_list, subattr, sub_id_attr, sub_id):
 def _resolve_targets(owner, relation, target_tokens, self_obj):
     if owner == "module":
         if target_tokens:
-            return None, "module commands do not accept targets"
+            return None, "command does not accept targets"
         return [], None
     if relation is None:
         return None, "relation not registered (call register_relation())"
@@ -416,7 +436,7 @@ def _resolve_targets(owner, relation, target_tokens, self_obj):
     sub_id_attr = relation.get("sub_id_attr")
     self_kind = _classify_self(self_obj, relation)
     if owner == "sub" and subattr is None:
-        return None, "sub targets are not supported"
+        return None, "sub targets are not supported for this relation"
 
     if not target_tokens:
         if self_obj is not None:
@@ -424,7 +444,7 @@ def _resolve_targets(owner, relation, target_tokens, self_obj):
         elif all_list is not None:
             target_tokens = [_ALL_TOKEN]
         else:
-            return None, "missing target (self/all)"
+            return None, "missing target; use 'for self' or 'for all'"
 
     main_targets = []
     sub_targets = []
@@ -435,10 +455,10 @@ def _resolve_targets(owner, relation, target_tokens, self_obj):
             return None, f"invalid target token {token.raw!r}"
         if token.kind == "self":
             if self_obj is None:
-                return None, "self target requires self"
+                return None, "target 'self' requires a self object"
             if owner == "main":
                 if self_kind != "main":
-                    return None, "self is not a main object"
+                    return None, "target 'self' is not a main object"
                 main_targets.append(self_obj)
             else:
                 if self_kind == "sub":
@@ -446,36 +466,36 @@ def _resolve_targets(owner, relation, target_tokens, self_obj):
                 elif self_kind == "main":
                     sub_targets.extend(_get_sub_items(self_obj, subattr) or [])
                 else:
-                    return None, "self is not a sub object"
+                    return None, "target 'self' is not a sub object"
         elif token.kind == "all":
             if owner == "main":
                 if all_list is None:
-                    return None, "all target requires all"
+                    return None, "target 'all' requires an all list"
                 main_targets.extend(all_list)
             else:
                 if self_kind == "main":
                     sub_targets.extend(_get_sub_items(self_obj, subattr) or [])
                 else:
                     if all_list is None:
-                        return None, "all target requires all"
+                        return None, "target 'all' requires an all list"
                     for main in all_list:
                         sub_targets.extend(_get_sub_items(main, subattr) or [])
         elif token.kind == "self_sub":
             if subattr is None:
-                return None, "sub targets are not supported"
+                return None, "sub targets are not supported for this relation"
             if owner == "main":
-                return None, "target refers to sub but command is main"
+                return None, "sub targets are only valid for sub commands"
             if self_kind != "main":
-                return None, "self.[n] requires self to be main"
+                return None, "self.[n] requires self to be a main object"
             subs = _get_sub_items(self_obj, subattr) or []
             if token.index >= len(subs) or token.index < 0:
                 return None, f"sub index out of range {token.raw!r}"
             sub_targets.append(subs[token.index])
         elif token.kind == "main_sub":
             if subattr is None:
-                return None, "sub targets are not supported"
+                return None, "sub targets are not supported for this relation"
             if owner == "main":
-                return None, "target refers to sub but command is main"
+                return None, "sub targets are only valid for sub commands"
             main = _find_main_by_id(all_list, main_id_attr, token.main_id)
             if main is None:
                 return None, f"unknown main id {token.main_id!r}"
@@ -512,22 +532,31 @@ def _enforce_explicit(info, owner, targets):
     if owner == "module":
         return None
     if len(targets) != 1:
-        return f"explicit command requires exactly one target"
+        name = " ".join(info.name_tokens)
+        return f"command {name!r} requires exactly one target"
     return None
 
 
 def _format_error(tokens, errors):
+    text = " ".join(tokens)
     if not errors:
-        return f"cmdtools.execute() cannot execute {' '.join(tokens)!r}"
+        return f"cannot execute {text!r}"
     uniq = []
     seen = set()
+    hint = None
+    if len(errors) == 1 and isinstance(errors[0], BuildError):
+        hint = errors[0].hint
     for err in errors:
-        if err and err not in seen:
-            uniq.append(err)
-            seen.add(err)
+        message = err.message if isinstance(err, BuildError) else err
+        if message and message not in seen:
+            uniq.append(message)
+            seen.add(message)
     if len(uniq) == 1:
-        return f"cmdtools.execute() {uniq[0]} in {' '.join(tokens)!r}"
-    return f"cmdtools.execute() cannot execute ({'; '.join(uniq)}) in {' '.join(tokens)!r}"
+        message = f"{uniq[0]} in {text!r}"
+        if hint:
+            return f"{message}\n* {hint}"
+        return message
+    return f"cannot execute ({'; '.join(uniq)}) in {text!r}"
 
 
 def _target_tokens_hint_sub(target_tokens):
@@ -626,40 +655,46 @@ def get_help(command=None, *, self=None):
     return "\n".join(lines).rstrip()
 
 
+def print_stderr(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+
 def _build_call(info, tokens, self_obj, all_override):
+    command_hint = _format_command(info)
+    command_name = " ".join(info.name_tokens)
     if info.owner == "module":
         owner = "module"
         arg_tokens, target_tokens, had_for = _split_for(tokens, info)
         if had_for and not target_tokens:
-            return None, "missing targets after for"
+            return None, _user_error("missing targets after 'for'", command_hint)
         args, error = _parse_arguments(info, arg_tokens)
         if error:
-            return None, error
+            return None, _user_error(error, command_hint)
         if target_tokens:
-            return None, "module commands do not accept targets"
+            return None, _user_error(f"command {command_name!r} does not accept targets", command_hint)
         return (info, owner, args, [], None, target_tokens), None
 
     relation, relation_error = _resolve_relation(self_obj, all_override)
     owner = _resolve_owner(info, relation) if relation_error is None else None
     if owner is None:
         if relation_error is not None:
-            return None, relation_error
-        return None, "unknown command owner"
+            return None, _dev_error(relation_error)
+        return None, _dev_error("unknown command owner")
 
     arg_tokens, target_tokens, had_for = _split_for(tokens, info)
     if had_for and not target_tokens:
-        return None, "missing targets after for"
+        return None, _user_error("missing targets after 'for'", command_hint)
     args, error = _parse_arguments(info, arg_tokens)
     if error:
-        return None, error
+        return None, _user_error(error, command_hint)
 
     targets, error = _resolve_targets(owner, relation, target_tokens, self_obj)
     if error:
-        return None, error
+        return None, _user_error(error, command_hint)
 
     error = _enforce_explicit(info, owner, targets)
     if error:
-        return None, error
+        return None, _user_error(error, command_hint)
 
     self_kind = _classify_self(self_obj, relation)
     return (info, owner, args, targets, self_kind, target_tokens), None
@@ -690,17 +725,18 @@ def _select_call(calls):
     return calls[0]
 
 
-def execute(*command, self=None, all=None):
+def execute(*command, self=None, all=None, dry_run=False):
     if not command:
-        raise RuntimeError("cmdtools.execute() empty command")
+        raise CmdtoolsError("empty command")
 
     tokens = _tokenize(command[0]) if len(command) == 1 else _tokenize(command)
     if not tokens:
-        raise RuntimeError("cmdtools.execute() empty command")
+        raise CmdtoolsError("empty command")
 
     infos, consumed, match_error = _match_command(tokens)
     if not infos:
-        raise RuntimeError(f"cmdtools.execute() {match_error} in {' '.join(tokens)!r}")
+        text = ' '.join(tokens)
+        raise CmdtoolsError(f"{match_error} in {text!r}")
 
     remaining = tokens[consumed:]
     calls = []
@@ -714,9 +750,21 @@ def execute(*command, self=None, all=None):
 
     selected = _select_call(calls)
     if not selected:
-        raise RuntimeError(_format_error(tokens, errors))
+        message = _format_error(tokens, errors)
+        if errors:
+            all_dev = True
+            for err in errors:
+                if err.kind != "dev":
+                    all_dev = False
+                    break
+            if all_dev:
+                raise RuntimeError(f"cmdtools.execute() {message}")
+        raise CmdtoolsError(message)
 
     info, owner, args, targets, self_kind, target_tokens = selected
+
+    if dry_run:
+        return
 
     if owner == "module":
         info.func(*args)
@@ -729,3 +777,47 @@ def execute(*command, self=None, all=None):
         for obj in targets:
             info.func(obj, *args)
         return
+
+
+
+def cli_entry(module_name=None, *, self=None, all=None, output=print, error_output=_ERROR_OUTPUT_DEFAULT, argv=None):
+    if module_name is not None and module_name != "__main__":
+        return
+
+    if argv is None:
+        argv = sys.argv[1:]
+
+    if error_output is _ERROR_OUTPUT_DEFAULT:
+        if output is print:
+            error_output = print_stderr
+        else:
+            error_output = output
+
+    def emit(func, text):
+        if func is None:
+            return
+        func(text)
+
+    if not argv:
+        emit(output, get_help(self=self))
+        raise SystemExit(0)
+
+    help_requested = any(token in ("-h", "--help") for token in argv)
+    if help_requested:
+        help_tokens = [token for token in argv if token not in ("-h", "--help")]
+        if help_tokens:
+            text = get_help(help_tokens, self=self)
+            if text.startswith("Unknown command"):
+                emit(error_output, text)
+                raise SystemExit(2)
+        else:
+            text = get_help(self=self)
+        emit(output, text)
+        raise SystemExit(0)
+
+    try:
+        execute(argv, self=self, all=all)
+    except CmdtoolsError as exc:
+        emit(error_output, str(exc))
+        raise SystemExit(2)
+
